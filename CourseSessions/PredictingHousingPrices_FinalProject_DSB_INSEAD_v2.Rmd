@@ -45,7 +45,9 @@ library('gridExtra')
 library('corrplot') 
 library('GGally')
 library('e1071')
-
+library('caret')
+library('glmnet')
+#install.packages("tidyverse")
 ```
 
 # Section 1: The Business Context
@@ -116,7 +118,62 @@ We also notice that the variable MSSubClass was parsed as numeric, but it is act
 
 ```{r eval = TRUE, echo=TRUE, comment=NA, warning=FALSE, message=FALSE,results='markup'}
 
-# Don't forget to add stuff here
+plot(SalePrice ~ LotArea, data= train) #plot of Sale Price vs. Lot Area in training data
+# This first graph lets us discover that there are many outliers that could get in the way of our prediction accuracy (mainly values over 700,000 and Lots with an area of 100,000 ft or more)
+
+plot(SalePrice ~ YearBuilt, data= train) #plot of Sale Price vs. Year that the house was built in training data
+
+plot(SalePrice ~ YearRemodAdd, data= train) #plot of Sale Price vs. Year the house was last remodelede in training data
+
+hist(train$SalePrice) #histogram of sales prices of houses
+
+#histogram shows us that the price of houses is skewed towards the left, with most houses being sold for under $200,000
+
+houses.train<-subset(train, Id<=1100)
+houses.predict<-subset(train, Id>=1100)
+
+fit<-lm(SalePrice ~ MSSubClass+LotFrontage+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+MasVnrArea+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+TotalBsmtSF+X1stFlrSF+X2ndFlrSF+GrLivArea+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageYrBlt+GarageArea+WoodDeckSF+OpenPorchSF, data=houses.train)
+
+predicted.SalePrices<-predict(fit, houses.predict)
+
+plot(predicted.SalePrices ~ houses.predict$SalePrice) #plot predictions vs. values in testing data
+abline(0,0) #draw the line at 0
+
+summary(fit) #summary statistics of first linear regression
+
+par(mfrow=c(1,4))
+plot(fit)
+
+#Now we will transform our data into a data.Matrix in order to be able to take out the correlation matrix and identify variables with strong correlation
+outTRAIN <- data.matrix(train)
+
+library(corrplot) #call the library that will be used to plot the correlation matrix
+
+res <- cor(outTRAIN) #compute the correlation matrix in our training data and do case-wise deletion of missing variables
+round(res, 4) #make sure that the values in our correlation matrix are rounded to 4 decimal places
+
+
+##Will now assess quality of the model by performing cross-validation and calculating the MAPE ##
+
+houses.data.test<-subset(train, (Id >= 800 & Id <= 1090))
+houses.data.train<-subset(train, Id <= 800) #redefine the training data
+
+fit <- lm(SalePrice ~ MSSubClass+LotFrontage+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+MasVnrArea+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+TotalBsmtSF+X1stFlrSF+X2ndFlrSF+GrLivArea+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageYrBlt+GarageArea+WoodDeckSF+OpenPorchSF, data = houses.data.train)
+
+predicted.prices.testing<-predict(fit, houses.data.test) #predict the prices of the 1000 diamonds left for testing the model
+
+
+percent.errors <- abs((houses.data.test$SalePrice-predicted.prices.testing)/houses.data.test$Price)*100 #calculate absolute percentage errors
+
+
+#fit.log <- lm(log(SalePrice ~ MSSubClass+LotFrontage+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+MasVnrArea+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+TotalBsmtSF+X1stFlrSF+X2ndFlrSF+GrLivArea+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageYrBlt+GarageArea+WoodDeckSF+OpenPorchSF, data = houses.data.train))
+
+#predicted.prices.testing.log<-predict(fit, houses.data.test) 
+
+#percent.errors.log <- abs((houses.data.test$SalePrice-predicted.prices.testing.log)/houses.data.test$Price)*100 #calculate absolute percentage errors
+
+#mean(percent.errors.log) 
+
 
 ```
 
@@ -398,11 +455,6 @@ ncol(validate)
 str(validate)
 ```
 
-## ?. Check correlations & data visualiztion
-```{r, message=FALSE, warning=FALSE}
-# MARCELO
-```
-
 ## 5.....TODO - need to decide what to do here
 
 ```{r, message=FALSE, warning=FALSE}
@@ -441,7 +493,27 @@ train <- train[train$GrLivArea<=4000,]
 
 ## ?. LASSO
 ```{r, message=FALSE, warning=FALSE}
-# XXX
+# Marcelo's work
+set.seed(400)
+
+#Splitting the data into training and test set
+
+training.samples <- train$SalePrice %>%
+  createDataPartition(p = 0.8, list = FALSE)
+train.data <- train[training.samples, ]
+test.data <- train[training.samples, ]
+
+#predictor variables
+##ERROR x <- model.matrix(SalePrice~., train.data)[,-1]
+#outcome variable
+##ERROR y <- train.data$SalePrice
+
+#compute penalized linear regression models
+## NOT YET RUN cv <- cv.glmnet(x, y, alpha = 0)
+#NOT YET RUN cv$lambda.min
+
+
+
 ```
 
 ## ?. Random Forrest
@@ -451,24 +523,61 @@ train <- train[train$GrLivArea<=4000,]
                             data = train_new)
 ```
 
-## ?. xgBOOST
+## ?. XGBoost
 ```{r, message=FALSE, warning=FALSE}
-#library(xgboost)
-#library(caret)
-#library(ROCR)
-#library(lift)
-
-#training.x <-model.matrix(SalePrice~ ., data = train_new)
-#testing.x <-model.matrix(SalePrice~ ., data = train_new)
+library(xgboost)
+library(caret)
+library(ROCR)
+library(lift)
 
 #model_XGboost<-xgboost(data = data.matrix(training.x[,-1]), 
- #                      label = as.numeric(as.character(train_new$SalePrice)), 
-  #                     eta = 0.1,       # hyperparameter: learning rate 
-   #                    max_depth = 20,  # hyperparameter: size of a tree in each boosting iteration
-    #                   nround=50,       # hyperparameter: number of boosting iterations  
-     #                  objective = "reg:squarederror"
-      #                 )
-#XGboost_prediction
+#                       label = as.numeric(as.character(train_new$SalePrice)), 
+#                       eta = 0.1,       # hyperparameter: learning rate 
+#                       max_depth = 20,  # hyperparameter: size of a tree in each boosting iteration
+#                       nround=50,       # hyperparameter: number of boosting iterations  
+#                       objective = "reg:squarederror"
+#                       )
+
+
+training_xgb <-model.matrix(SalePrice~ ., data = train_new)
+validate_xgb <-model.matrix(SalePrice~ ., data = validate)
+test_xgb <- subset(test,select=-c(Id,isTrain))
+test_xgb <- model.matrix(SalePrice~ ., data = test_xgb)
+
+training_xgb <- xgb.DMatrix(data = as.matrix(training_xgb), label= train_new$SalePrice)
+validate_xgb <- xgb.DMatrix(data = as.matrix(validate_xgb))
+#test_xgb_matrix <- xgb.DMatrix(data = as.matrix(test_xgb))
+
+# Tune these parameters to minimse RMSE
+default_param<-list(
+  objective = "reg:squarederror",
+  booster = "gbtree",
+  eta=0.03, #default = 0.3
+  gamma=0.05,
+  max_depth=10, #default=6
+  min_child_weight=1, #default=1
+  subsample=1,
+  colsample_bytree=1
+)
+
+# Run cross validation
+xgbcv <- xgb.cv( params = default_param, data = training_xgb, 
+                 nrounds = 50, nfold = 5, showsd = T, 
+                 stratified = T, print_every_n = 10, 
+                 early_stopping_rounds = 10, maximize = F)
+
+# Train the model
+xgb_mod <- xgb.train(data = training_xgb, params=default_param, nrounds = 300)
+
+xgb_pred <- predict(xgb_mod, validate_xgb)
+
+xgb_pred
+
+xgb_pred <- predict(xgb_mod, test_xgb)
+
+xgb_pred
+
+
 ```
 
 ## 8...Variable importance TODO (this is only for random forrest)
